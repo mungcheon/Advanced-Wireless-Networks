@@ -55,25 +55,52 @@ fprintf('제안 방식 평균 SINR    : %.2f dB\n', prop.meanSINR);
 fprintf('베이스라인 평균 레이더 SNR: %.2f dB\n', base.meanRadarSNR);
 fprintf('제안 방식 평균 레이더 SNR : %.2f dB\n', prop.meanRadarSNR);
 
-%% 시각화
-fig = figure('Color','w','Name','ISAC Interference Mitigation Results');
-subplot(1,2,1);
+%% 시각화 (패널별 분리 저장)
+% Figure 1: 최종 통신 성능 비교
+fig1 = figure('Color','w','Name','Final Communication Performance');
 bar([base.successRate prop.successRate]*100);
-set(gca,'XTickLabel',{'통신 성공률'});
-ylabel('%'); title('성공률 비교'); grid on;
+set(gca,'XTick',1:2,'XTickLabel',{'Baseline','Proposed'});
+ylabel('Success Rate (%)'); title('Final Communication Performance (SINR >= Threshold)'); grid on;
+drawnow;
 
-subplot(1,2,2);
+% Figure 2: 최종 품질 지표 비교
+fig2 = figure('Color','w','Name','Final Quality Metrics');
 bar([base.meanSINR prop.meanSINR; base.meanRadarSNR prop.meanRadarSNR]);
-set(gca,'XTickLabel',{'평균 SINR','평균 Radar SNR'});
+set(gca,'XTickLabel',{'Mean Communication SINR','Mean Radar SNR'});
 legend({'Baseline','Proposed'},'Location','best');
-ylabel('dB'); title('품질 지표 비교'); grid on;
+ylabel('dB'); title('Final Quality Metrics'); grid on;
+drawnow;
+
+% Figure 3: 시간 진행에 따른 슬롯별 성공률
+fig3 = figure('Color','w','Name','Temporal Success Rate');
+plot(1:Nslot,100*base.slotSuccessRate,'-','LineWidth',1.2); hold on;
+plot(1:Nslot,100*prop.slotSuccessRate,'-','LineWidth',1.2);
+xlabel('Time Slot'); ylabel('Per-Slot Success Rate (%)');
+title('Temporal Evolution of Communication Success Rate');
+legend({'Baseline','Proposed'},'Location','best'); grid on;
+drawnow;
+
+% Figure 4: 스케줄링 동작 추적 (활성 링크 수)
+fig4 = figure('Color','w','Name','Scheduling Behavior Trace');
+plot(1:Nslot,base.activeLinksPerSlot,'-','LineWidth',1.2); hold on;
+plot(1:Nslot,prop.activeLinksPerSlot,'-','LineWidth',1.2);
+xlabel('Time Slot'); ylabel('Number of Active Links');
+title('Scheduling Behavior Trace (Simultaneous Active Links)');
+legend({'Baseline','Proposed'},'Location','best'); grid on;
 drawnow;
 
 % 결과 저장 (항상 스크립트 폴더)
-outPng = fullfile(scriptDir,'results_overview.png');
+outPng1 = fullfile(scriptDir,'results_final_success_rate.png');
+outPng2 = fullfile(scriptDir,'results_final_quality_metrics.png');
+outPng3 = fullfile(scriptDir,'results_temporal_success_rate.png');
+outPng4 = fullfile(scriptDir,'results_scheduling_trace.png');
 outCsv = fullfile(scriptDir,'results_metrics.csv');
 outMat = fullfile(scriptDir,'results_metrics.mat');
-exportgraphics(fig, outPng, 'Resolution', 180);
+
+exportgraphics(fig1, outPng1, 'Resolution', 180);
+exportgraphics(fig2, outPng2, 'Resolution', 180);
+exportgraphics(fig3, outPng3, 'Resolution', 180);
+exportgraphics(fig4, outPng4, 'Resolution', 180);
 
 summaryTable = table([base.successRate;prop.successRate]*100, ...
     [base.meanSINR;prop.meanSINR], [base.meanRadarSNR;prop.meanRadarSNR], ...
@@ -83,7 +110,10 @@ summaryTable = table([base.successRate;prop.successRate]*100, ...
 writetable(rows2vars(summaryTable), outCsv);
 save(outMat,'base','prop','summaryTable');
 
-fprintf('\nSaved figure : %s\n', outPng);
+fprintf('\nSaved figure 1: %s\n', outPng1);
+fprintf('Saved figure 2: %s\n', outPng2);
+fprintf('Saved figure 3: %s\n', outPng3);
+fprintf('Saved figure 4: %s\n', outPng4);
 fprintf('Saved metrics: %s\n', outCsv);
 fprintf('Saved MAT    : %s\n', outMat);
 disp('--- 결과 테이블 ---');
@@ -153,6 +183,21 @@ validRadar = isfinite(radarLog);
 out.successRate = succCount / nnz(validSINR);
 out.meanSINR = mean(sinrLog(validSINR));
 out.meanRadarSNR = mean(radarLog(validRadar));
+
+% 진행과정 분석용 로그
+slotSucc = zeros(Nslot,1);
+active = zeros(Nslot,1);
+for t = 1:Nslot
+    valid_t = isfinite(sinrLog(t,:));
+    if any(valid_t)
+        slotSucc(t) = mean(sinrLog(t,valid_t) >= SINR_th_dB);
+    else
+        slotSucc(t) = 0;
+    end
+    active(t) = nnz(valid_t);
+end
+out.slotSuccessRate = slotSucc;
+out.activeLinksPerSlot = active;
 end
 
 function rb = greedyRB(Nlink, Nrb, prio)
