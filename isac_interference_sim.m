@@ -1,9 +1,16 @@
 %% Interference Mitigation in 4.9 GHz ISAC Networks
-% Multi-domain Resource Management (time/frequency/power) toy simulation
+% Multi-domain Resource Management (time/frequency/power) classroom prototype
 % 실행: MATLAB에서 isac_interference_sim 입력
 
 clear; clc; close all;
 rng(7);
+
+% 출력 파일 저장 경로를 현재 스크립트 폴더로 고정
+scriptDir = fileparts(mfilename('fullpath'));
+if isempty(scriptDir)
+    scriptDir = pwd;
+end
+fprintf('Output directory: %s\n', scriptDir);
 
 %% 시나리오 설정
 Nveh = 24;            % 차량 노드 수
@@ -48,8 +55,8 @@ fprintf('제안 방식 평균 SINR    : %.2f dB\n', prop.meanSINR);
 fprintf('베이스라인 평균 레이더 SNR: %.2f dB\n', base.meanRadarSNR);
 fprintf('제안 방식 평균 레이더 SNR : %.2f dB\n', prop.meanRadarSNR);
 
-%% 그림
-figure('Color','w');
+%% 시각화
+fig = figure('Color','w','Name','ISAC Interference Mitigation Results');
 subplot(1,2,1);
 bar([base.successRate prop.successRate]*100);
 set(gca,'XTickLabel',{'통신 성공률'});
@@ -60,18 +67,27 @@ bar([base.meanSINR prop.meanSINR; base.meanRadarSNR prop.meanRadarSNR]);
 set(gca,'XTickLabel',{'평균 SINR','평균 Radar SNR'});
 legend({'Baseline','Proposed'},'Location','best');
 ylabel('dB'); title('품질 지표 비교'); grid on;
+drawnow;
 
-saveas(gcf,'results_overview.png');
+% 결과 저장 (항상 스크립트 폴더)
+outPng = fullfile(scriptDir,'results_overview.png');
+outCsv = fullfile(scriptDir,'results_metrics.csv');
+outMat = fullfile(scriptDir,'results_metrics.mat');
+exportgraphics(fig, outPng, 'Resolution', 180);
 
-% 결과를 파일로 저장 (초보자 확인용)
 summaryTable = table([base.successRate;prop.successRate]*100, ...
     [base.meanSINR;prop.meanSINR], [base.meanRadarSNR;prop.meanRadarSNR], ...
     'VariableNames', {'SuccessRate_percent','MeanSINR_dB','MeanRadarSNR_dB'}, ...
     'RowNames', {'Baseline','Proposed'});
+
+writetable(rows2vars(summaryTable), outCsv);
+save(outMat,'base','prop','summaryTable');
+
+fprintf('\nSaved figure : %s\n', outPng);
+fprintf('Saved metrics: %s\n', outCsv);
+fprintf('Saved MAT    : %s\n', outMat);
 disp('--- 결과 테이블 ---');
 disp(summaryTable);
-writetable(rows2vars(summaryTable),'results_metrics.csv');
-save('results_metrics.mat','base','prop','summaryTable');
 
 %% ---- local function ----
 function out = runScheduler(pos, pairs, Nslot, Nrb, Pmin_dBm, Pmax_dBm, ...
@@ -93,20 +109,14 @@ for t = 1:Nslot
     pAssign  = Pmax_dBm*ones(Nlink,1);       % 기본 최대전력
 
     if smartMode
-        % 1) 주파수 도메인: greedy RB 재할당 (강한 간섭 링크 분리)
         rbAssign = greedyRB(Nlink, Nrb, prio);
-
-        % 2) 전력 도메인: 링크 거리 기반 전력 제어
         pAssign = Pmin_dBm + (Pmax_dBm-Pmin_dBm)*normalize(d,'range');
-
-        % 3) 시간 도메인: 일부 링크는 쉬어가며 간섭 감소
         if mod(t,3)==0
             muteIdx = prio(1:floor(0.15*Nlink));
             pAssign(muteIdx) = -Inf; % 무전송
         end
     end
 
-    % 링크별 SINR 계산
     for k = 1:Nlink
         if ~isfinite(pAssign(k))
             sinrLog(t,k) = -Inf;
@@ -132,8 +142,7 @@ for t = 1:Nslot
         sinrLog(t,k) = 10*log10(SINR);
         succCount = succCount + (sinrLog(t,k) >= SINR_th_dB);
 
-        % 레이더 SNR (단순 monostatic 근사)
-        sigma = 1; % RCS 가정
+        sigma = 1;
         Pr = (10^(pAssign(k)/10) * lambda^2 * sigma)/((4*pi)^3 * Rtarget(k)^4);
         radarLog(t,k) = 10*log10(Pr/noise_mW);
     end
@@ -158,7 +167,6 @@ end
 end
 
 function L = fspl(d, lambda)
-% 간단 자유공간 경로손실 (선형 스케일)
 d = max(d,1);
 L = (4*pi*d/lambda)^2;
 end
